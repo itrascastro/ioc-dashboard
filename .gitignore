@@ -23,6 +23,9 @@ out/
 # Configuration files with credentials
 config.json
 
+# Static generated files
+dashboard_static.html
+
 # Logs
 *.log
 npm-debug.log*
