@@ -77,6 +77,9 @@ GITHUB_REPO = CONFIG.get('GITHUB_REPO', '')
 GITHUB_FILE_PATH = CONFIG.get('GITHUB_FILE_PATH', '')
 STATIC_FILENAME = 'dashboard_static.html'
 
+# Habilitar/deshabilitar generació/publish estàtic en funció del token
+ENABLE_STATIC = bool(GITHUB_TOKEN.strip())
+
 CURSOS_A_MONITORIZAR = [
     {'id': '836'}, {'id': '5626'}, {'id': '841'}, {'id': '16472'},
     {'id': '16616'}, {'id': '16626'}, {'id': '16630'}, {'id': '16629'},
@@ -275,6 +278,9 @@ def upload_to_github(html_content):
         return f"ERROR durant la pujada a GitHub: {e}"
 
 def update_static_site_in_background(final_data):
+    # Salvaguarda: si està deshabilitat, no fer res
+    if not ENABLE_STATIC:
+        return
     start_time_str = datetime.now().strftime('%H:%M:%S')
     total_bg_start = time.monotonic()
     summary_lines = []
@@ -407,7 +413,17 @@ def get_moodle_data():
     print_boxed_summary(f"FASE 1: OBTENCIÓ DE DADES - {start_time_str}", summary_lines, color=bcolors.OKBLUE)
 
     final_data = {"courses": course_results, "mail": mail_result['count']}
-    threading.Thread(target=update_static_site_in_background, args=(final_data,)).start()
+
+    if ENABLE_STATIC:
+        threading.Thread(target=update_static_site_in_background, args=(final_data,)).start()
+    else:
+        # Informar de la FASE 2 desactivada per configuració (GITHUB_TOKEN buit)
+        summary_lines = []
+        summary_lines.append("- GITHUB_TOKEN buit: s’omet generació estàtica i pujada.")
+        summary_lines.append("- Cap crida a GitHub realitzada. Cap fitxer generat.")
+        summary_lines.append("")
+        summary_lines.append(f"{bcolors.BOLD}Procés desactivat per configuració{bcolors.ENDC}")
+        print_boxed_summary("FASE 2: PROCÉS DE FONS - DESACTIVAT", summary_lines, color=bcolors.WARNING)
     
     return jsonify(final_data)
 
@@ -419,6 +435,12 @@ if __name__ == '__main__':
         import logging
         log = logging.getLogger('werkzeug')
         log.setLevel(logging.ERROR)
+
+        # Estat de la publicació estàtica
+        if ENABLE_STATIC:
+            print(f"{bcolors.OKGREEN}Publicació estàtica habilitada (pujada a GitHub activa).{bcolors.ENDC}")
+        else:
+            print(f"{bcolors.WARNING}Publicació estàtica desactivada (GITHUB_TOKEN buit).{bcolors.ENDC}")
 
         print("Establiment de la sessió inicial de Moodle...")
         create_new_moodle_session() # Login inicial al arrancar
