@@ -35,7 +35,7 @@
 - Flux de dades (en temps real):
   1) L’usuari obre `/` (serveix `index.html`).
   2) El client crida `/get-moodle-data`.
-  3) El servidor, si cal, crea sessió a Moodle, obté `sesskey` i llança fils per:
+  3) El servidor, si cal, crea sessió a Moodle fent primer un `GET` al formulari de login per capturar el camp ocult `logintoken`, envia després el `POST` amb credencials, obté `sesskey` i llança fils per:
      - Comptar correus no llegits via `lib/ajax/service.php` (mètode `local_mail_get_courses`).
      - Demanar les notificacions per curs via `local/courseoverview/ajax.php?courseid=ID` per a cada curs de `CURSOS_A_MONITORIZAR`.
   4) Retorna JSON amb `courses` (HTML de cada curs) i `mail` (enter).
@@ -110,7 +110,7 @@
   - Token de GitHub: utilitzeu el mínim abast necessari (repo:contents) i rotació periòdica. Revocar-lo si es sospita d’exposició.
   - Recomanació: considerar `.env` + `python-dotenv` o KMS/gestor de secrets per producció.
 - Sessió Moodle i peticions:
-  - Gestió de sessió amb `requests.Session` i detecció de sessió expirada per text de login. Existeix recomputació de sessió quan cal.
+  - Gestió de sessió amb `requests.Session` i detecció de sessió expirada per text de login. El login actual depèn també del camp ocult `logintoken` del formulari de Moodle, de manera que canvis futurs en aquesta pantalla poden tornar a requerir ajustos.
   - Timeouts establerts (10–20s). No hi ha reintents/backoff; recomanable afegir-los per resiliència.
 - Dependències:
   - `requirements.txt` no fixa versions. Recomanable “pinning” (p. ex. `Flask==2.3.3`, etc.) i actualització regular.
@@ -155,6 +155,8 @@
   - Copieu `config.json.example` a `config.json` a l’arrel i ompliu els camps.
 - Credencials invàlides o sessió expirada constantment:
   - Reviseu usuari/contrasenya, canvis de política al Moodle i que no hi hagi 2FA. Mireu la consola del servidor per missatges.
+- Error de login després d’un canvi al portal Moodle:
+  - El flux actual llegeix `https://ioc.xtec.cat/campus/login/index.php`, extreu `logintoken` i només després envia usuari i contrasenya. Si torna a aparèixer l’error “Credencials invàlides o pàgina de login inesperada”, reviseu si el formulari ha canviat de camps, selectors o pas intermedi.
 - Pujada a GitHub falla:
   - Reviseu `GITHUB_TOKEN` (abasts), usuari/repositori i `GITHUB_FILE_PATH`. Comproveu si la branca és `master` o `main` i adapteu el codi si cal.
 

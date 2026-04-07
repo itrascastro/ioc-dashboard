@@ -91,13 +91,33 @@ CURSOS_A_MONITORIZAR = [
 # --- FUNCIONES DE OBTENCIÓN DE DATOS (RÁPIDAS) ---
 def login_and_get_session_data(session):
     print(f"{bcolors.OKBLUE}Iniciant sessió amb Requests...{bcolors.ENDC}")
-    payload = {'username': USERNAME, 'password': PASSWORD}
     try:
+        login_page_response = session.get(LOGIN_URL, timeout=10)
+        login_page_response.raise_for_status()
+
+        login_page_soup = BeautifulSoup(login_page_response.text, 'html.parser')
+        login_token_input = login_page_soup.find('input', attrs={'name': 'logintoken'})
+        if not login_token_input or not login_token_input.get('value'):
+            print(f"{bcolors.FAIL}ERROR: No s'ha trobat el logintoken al formulari de login.{bcolors.ENDC}")
+            return None
+
+        payload = {
+            'logintoken': login_token_input['value'],
+            'username': USERNAME,
+            'password': PASSWORD,
+        }
+
         login_response = session.post(LOGIN_URL, data=payload, timeout=10)
         login_response.raise_for_status()
-        if "loginerrors" in login_response.text or "login/index.php" in login_response.url: 
+
+        login_response_soup = BeautifulSoup(login_response.text, 'html.parser')
+        login_error = login_response_soup.select_one('.loginerrors, .alert-danger')
+        still_on_login_page = "Inicia sessió en aquest lloc" in login_response.text and "id=\"login\"" in login_response.text
+
+        if login_error or still_on_login_page:
             print(f"{bcolors.FAIL}ERROR: Credencials invàlides o pàgina de login inesperada.{bcolors.ENDC}")
             return None
+
         dashboard_response = session.get(DASHBOARD_URL, timeout=10)
         dashboard_response.raise_for_status()
         match = re.search(r'"sesskey":"([^"]+)"', dashboard_response.text)
