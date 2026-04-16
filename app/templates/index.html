@@ -51,8 +51,9 @@
         .forum-content-hidden { display: none; }
         .forum-content-visible { display: block; border-top: 1px solid #e0e0e0; padding-top: 10px; margin-top: 10px; }
         .dark-mode .forum-content-visible { border-top-color: #777; }
-        .dark-mode .ajax-notification-wrapper img.icon, .dark-mode .mail-notification img.icon { filter: invert(1) brightness(0.8); }
-        .mail-notification { margin-left: 8px; display: inline-flex; align-items: flex-end; gap: 0px; }
+        .dark-mode .ajax-notification-wrapper img.icon { filter: invert(1) brightness(0.8); }
+        .mail-notification { margin-left: 8px; display: inline-flex; align-items: center; gap: 0px; }
+        .mail-notification .icon { width: 24px; height: 24px; flex: 0 0 auto; color: currentColor; }
         .mail-count { font-size: 0.9em; color: inherit; font-weight: normal; margin-left: 3px; line-height: 1; position: relative; top: 2px; }
         .content-updating { opacity: 0.5; transition: opacity 0.3s ease; }
         .content-updated { opacity: 1; transition: opacity 0.3s ease; }
@@ -187,6 +188,11 @@
     <script>
         // --- CONFIGURACIÓN ---
         const AUTO_REFRESH_MINUTES = 5;
+        const MAIL_ICON_SVG = `
+            <svg class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMinYMid meet" aria-hidden="true">
+                <path fill-rule="evenodd" clip-rule="evenodd" d="M6.49609 2.98999C4.5631 2.98999 2.99609 4.55699 2.99609 6.48999V14.5561C2.99609 14.5635 2.99626 14.571 2.99658 14.5784V20.0092C2.99658 20.841 3.95298 21.3092 4.60994 20.799L8.21061 18.0027H17.5034C19.4364 18.0027 21.0034 16.4357 21.0034 14.5027V6.48999C21.0034 4.55699 19.4364 2.98999 17.5034 2.98999H6.49609ZM3.99658 13.9749C3.99658 13.9674 3.99642 13.9599 3.99609 13.9526V6.48999C3.99609 5.10928 5.11538 3.98999 6.49609 3.98999H17.5034C18.8841 3.98999 20.0034 5.10928 20.0034 6.48999V14.5027C20.0034 15.8834 18.8841 17.0027 17.5034 17.0027H8.02337C7.87222 17.0027 7.73673 17.0698 7.64504 17.1758L3.99658 20.0092V13.9749ZM7.00391 7.49414C7.00391 7.218 7.22776 6.99414 7.50391 6.99414H16.5085C16.7847 6.99414 17.0085 7.218 17.0085 7.49414C17.0085 7.77028 16.7847 7.99414 16.5085 7.99414H7.50391C7.22776 7.99414 7.00391 7.77028 7.00391 7.49414ZM7.50391 9.99048C7.22776 9.99048 7.00391 10.2143 7.00391 10.4905C7.00391 10.7666 7.22776 10.9905 7.50391 10.9905H16.5085C16.7847 10.9905 17.0085 10.7666 17.0085 10.4905C17.0085 10.2143 16.7847 9.99048 16.5085 9.99048H7.50391ZM7.50391 12.9905C7.22776 12.9905 7.00391 13.2143 7.00391 13.4905C7.00391 13.7666 7.22776 13.9905 7.50391 13.9905H13.5071C13.7832 13.9905 14.0071 13.7666 14.0071 13.4905C14.0071 13.2143 13.7832 12.9905 13.5071 12.9905H7.50391Z" fill="currentColor"/>
+            </svg>
+        `;
 
         // --- ELEMENTOS DEL DOM ---
         const moodleStatusEl = document.getElementById('moodle-status');
@@ -270,7 +276,7 @@
                 const mailBadge = document.createElement('span');
                 mailBadge.className = 'mail-notification content-updated';
                 mailBadge.innerHTML = `
-                    <img class="icon" alt="Correus no llegits" title="Correus no llegits" src="https://ioc.xtec.cat/campus/theme/image.php/boostioc/mod_forum/1749649652/icon">
+                    ${MAIL_ICON_SVG}
                     <span class="mail-count">${mailCount}</span>
                 `;
                 mailLink.appendChild(mailBadge);
