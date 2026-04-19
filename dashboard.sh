@@ -44,7 +44,10 @@ if [ ! -f "../config.json" ]; then
 fi
 
 # 4. Executar el servidor de Flask.
+DASHBOARD_HOST="${DASHBOARD_HOST:-127.0.0.1}"
+DASHBOARD_PORT="${DASHBOARD_PORT:-5050}"
+
 echo "\n*** Iniciant el servidor del Dashboard ***"
-echo "Obre el teu navegador i ves a http://127.0.0.1:5000"
+echo "Obre el teu navegador i ves a http://${DASHBOARD_HOST}:${DASHBOARD_PORT}"
 echo "Per aturar el servidor, prem CTRL+C en aquesta terminal."
-source .venv/bin/activate && python3 dashboard.py
+source .venv/bin/activate && DASHBOARD_HOST="$DASHBOARD_HOST" DASHBOARD_PORT="$DASHBOARD_PORT" python3 dashboard.py

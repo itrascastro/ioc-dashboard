@@ -87,7 +87,8 @@
     - Crea/activa un entorn virtual `.venv` a `app/`.
     - Instal·la dependències de `requirements.txt`.
     - Verifica `config.json` a l’arrel.
-    - Inicia el servidor Flask a `http://127.0.0.1:5000`.
+    - Inicia el servidor Flask a `http://127.0.0.1:5050`.
+    - Podeu canviar host o port amb `DASHBOARD_HOST` i `DASHBOARD_PORT` si cal.
 - Interfície:
   - Botó “Refresca Moodle”: llança la consulta en temps real.
   - Auto-refresc: per defecte cada 5 minuts (configurable).
@@ -155,6 +156,8 @@
   - Copieu `config.json.example` a `config.json` a l’arrel i ompliu els camps.
 - Credencials invàlides o sessió expirada constantment:
   - Reviseu usuari/contrasenya, canvis de política al Moodle i que no hi hagi 2FA. Mireu la consola del servidor per missatges.
+- Error 403 a `127.0.0.1:5000` en macOS:
+  - El port `5000` el pot ocupar AirPlay/Control Center. El dashboard fa servir `5050` per defecte; obriu `http://127.0.0.1:5050`.
 - Error de login després d’un canvi al portal Moodle:
   - El flux actual llegeix `https://ioc.xtec.cat/campus/login/index.php`, extreu `logintoken` i només després envia usuari i contrasenya. Si torna a aparèixer l’error “Credencials invàlides o pàgina de login inesperada”, reviseu si el formulari ha canviat de camps, selectors o pas intermedi.
 - Pujada a GitHub falla:

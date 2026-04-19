@@ -63,6 +63,12 @@ else:
 
 USERNAME = CONFIG.get('MOODLE_USERNAME', '')
 PASSWORD = CONFIG.get('MOODLE_PASSWORD', '')
+DASHBOARD_HOST = os.environ.get('DASHBOARD_HOST', CONFIG.get('DASHBOARD_HOST', '127.0.0.1'))
+try:
+    DASHBOARD_PORT = int(os.environ.get('DASHBOARD_PORT', CONFIG.get('DASHBOARD_PORT', 5050)))
+except (TypeError, ValueError):
+    print(f"{bcolors.WARNING}DASHBOARD_PORT invàlid. S'utilitza el port 5050.{bcolors.ENDC}")
+    DASHBOARD_PORT = 5050
 
 # --- CONFIGURACIÓN MOODLE ---
 LOGIN_URL = 'https://ioc.xtec.cat/campus/login/index.php'
@@ -468,5 +474,5 @@ if __name__ == '__main__':
 
         print("Establiment de la sessió inicial de Moodle...")
         create_new_moodle_session() # Login inicial al arrancar
-        print(f"{bcolors.OKGREEN}Servidor Flask iniciat. Obre http://127.0.0.1:5000.{bcolors.ENDC}")
-        app.run(host='127.0.0.1', port=5000, debug=False)
+        print(f"{bcolors.OKGREEN}Servidor Flask iniciat. Obre http://{DASHBOARD_HOST}:{DASHBOARD_PORT}.{bcolors.ENDC}")
+        app.run(host=DASHBOARD_HOST, port=DASHBOARD_PORT, debug=False)
