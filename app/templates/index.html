@@ -73,6 +73,8 @@
         .dark-mode .mark-read-btn { border-color: #aaa; color: #aaa; }
         .dark-mode .mark-read-btn:hover:not(:disabled) { background-color: #aaa; color: #333; }
         .mark-read-btn:disabled { opacity: 0.25; cursor: not-allowed; }
+        .mark-read-btn.success { opacity: 1 !important; background-color: #27ae60; border-color: #27ae60; color: #fff; }
+        .mark-read-btn.error { opacity: 1 !important; background-color: #e74c3c; border-color: #e74c3c; color: #fff; }
         @media (max-width: 768px) {
             .container { grid-template-columns: 1fr; }
             .header-footer { flex-direction: column; align-items: center; }
@@ -274,6 +276,7 @@
                     wrapper.innerHTML = data.courses[courseId];
                     courseContainer.appendChild(wrapper);
 
+                    if (!wrapper.querySelector('a[href*="mod/forum/view.php"]')) return;
                     const markBtn = document.createElement('button');
                     markBtn.className = 'mark-read-btn';
                     markBtn.textContent = '✓';
@@ -287,17 +290,21 @@
                             const res = await fetch(`/mark-course-read/${courseId}`, { method: 'POST' });
                             const result = await res.json();
                             if (result.success && result.forums_marked > 0) {
-                                wrapper.remove();
+                                markBtn.textContent = '✓';
+                                markBtn.classList.add('success');
+                                setTimeout(() => wrapper.remove(), 1500);
                             } else {
                                 const msg = result.error || `0/${result.total_forums} marcats`;
                                 markBtn.title = msg;
                                 console.warn(`mark-course-read [${courseId}]:`, msg);
                                 markBtn.textContent = '✗';
+                                markBtn.classList.add('error');
                                 markBtn.disabled = false;
                             }
                         } catch (err) {
                             markBtn.title = 'Error de connexió';
                             markBtn.textContent = '✗';
+                            markBtn.classList.add('error');
                             markBtn.disabled = false;
                         }
                     });
