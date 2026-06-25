@@ -396,6 +396,181 @@ def create_new_moodle_session():
 def dashboard_page():
     return render_template('index.html')
 
+MOODLE_BASE_URL = 'https://ioc.xtec.cat/campus'
+
+@app.route('/debug-course-html/<int:course_id>')
+def debug_course_html(course_id):
+    if not moodle_session:
+        return jsonify({"error": "No hi ha sessió activa."}), 400
+    try:
+        response = moodle_session.get(AJAX_COURSE_URL.format(course_id=course_id), timeout=20)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        all_links = [a['href'] for a in soup.find_all('a', href=True)]
+        return jsonify({"html": response.text, "links": all_links})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/debug-forum-html/<int:cmid>')
+def debug_forum_html(cmid):
+    if not moodle_session:
+        return jsonify({"error": "No hi ha sessió activa."}), 400
+    try:
+        response = moodle_session.get(f"{MOODLE_BASE_URL}/mod/forum/view.php?id={cmid}", timeout=20)
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        # For each unique discussion, collect ALL its links with text/attributes
+        disc_info = {}
+        for a in soup.find_all('a', href=True):
+            href = a['href']
+            if 'discuss.php' not in href:
+                continue
+            d_match = re.search(r'[?&]d=(\d+)', href)
+            if not d_match:
+                continue
+            did = d_match.group(1)
+            if did not in disc_info:
+                disc_info[did] = []
+            disc_info[did].append({
+                'href': href,
+                'text': a.get_text(strip=True)[:80],
+                'title': a.get('title', ''),
+                'aria': a.get('aria-label', ''),
+                'class': ' '.join(a.get('class', [])),
+                'parent': 'parent=' in href,
+            })
+
+        # Also find the full HTML of the first table row containing a discussion
+        first_rows = []
+        for tr in soup.find_all('tr'):
+            if 'discuss.php' in str(tr) and len(first_rows) < 2:
+                first_rows.append(str(tr)[:3000])
+
+        return jsonify({
+            "total_discussions": len(disc_info),
+            "first_5_discussions": dict(list(disc_info.items())[:5]),
+            "first_2_rows_html": first_rows,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/mark-course-read/<int:course_id>', methods=['POST'])
+def mark_course_read(course_id):
+    global moodle_session, moodle_sesskey
+    if not moodle_session or not moodle_sesskey:
+        return jsonify({"error": "No hi ha sessió activa. Refresca primer."}), 400
+
+    session = moodle_session
+
+    try:
+        response = session.get(AJAX_COURSE_URL.format(course_id=course_id), timeout=20)
+        response.raise_for_status()
+
+        if "login/index.php" in response.text:
+            return jsonify({"error": "Sessió caducada. Refresca el dashboard."}), 401
+
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        # Extract {cmid: unread_count} from plugin HTML.
+        # The plugin renders: "<strong>N</strong> no llegits a <a href="...?id=CMID">..."
+        forum_data = {}  # cmid -> unread_count
+        for li in soup.find_all('li'):
+            a = li.find('a', href=True)
+            if not a:
+                continue
+            m = re.search(r'mod/forum/view\.php[^"\']*[?&]id=(\d+)', a['href'])
+            if not m:
+                continue
+            cmid = m.group(1)
+            strong = li.find('strong')
+            unread_count = int(strong.text.strip()) if strong and strong.text.strip().isdigit() else 20
+            forum_data[cmid] = unread_count
+
+        print(f"{bcolors.OKCYAN}Curs {course_id} - fòrums: {forum_data}{bcolors.ENDC}")
+
+        marked = 0
+        total = 0
+
+        # Semaphore: max 5 concurrent HTTP requests to Moodle to avoid server overload/timeouts
+        sem = threading.Semaphore(5)
+
+        def moodle_get(url, timeout=20, retries=2):
+            for attempt in range(retries + 1):
+                try:
+                    with sem:
+                        return session.get(url, timeout=timeout)
+                except requests.exceptions.Timeout:
+                    if attempt < retries:
+                        print(f"{bcolors.WARNING}  Timeout a {url[-40:]}, reintentant ({attempt+1}/{retries})...{bcolors.ENDC}")
+                    else:
+                        raise
+
+        def mark_forum(cmid):
+            try:
+                forum_page = moodle_get(f"{MOODLE_BASE_URL}/mod/forum/view.php?id={cmid}")
+                if not forum_page.ok:
+                    return 0, 0
+
+                forum_soup = BeautifulSoup(forum_page.text, 'html.parser')
+
+                # Links with #unread anchor are the badges Moodle 4.x renders server-side
+                # exclusively for discussions with unread posts.
+                disc_ids = set()
+                for a in forum_soup.find_all('a', href=True):
+                    m = re.search(r'discuss\.php[^"\']*[?&]d=(\d+)#unread', a['href'])
+                    if m:
+                        disc_ids.add(m.group(1))
+
+                print(f"{bcolors.OKCYAN}  CMID {cmid} → {len(disc_ids)} no llegides: {disc_ids}{bcolors.ENDC}")
+
+                visit_results = {}
+
+                def visit(did):
+                    try:
+                        r = moodle_get(f"{MOODLE_BASE_URL}/mod/forum/discuss.php?d={did}")
+                        visit_results[did] = r.ok
+                        print(f"{bcolors.OKGREEN if r.ok else bcolors.FAIL}    d={did} → HTTP {r.status_code}{bcolors.ENDC}")
+                    except Exception as e:
+                        visit_results[did] = False
+                        print(f"{bcolors.FAIL}    d={did} → error: {e}{bcolors.ENDC}")
+
+                visit_threads = [threading.Thread(target=visit, args=(did,)) for did in disc_ids]
+                for t in visit_threads:
+                    t.start()
+                for t in visit_threads:
+                    t.join()
+
+                ok = sum(1 for v in visit_results.values() if v)
+                print(f"{bcolors.OKGREEN}  CMID {cmid} → {ok}/{len(disc_ids)} marcades{bcolors.ENDC}")
+                return ok, len(disc_ids)
+
+            except Exception as e:
+                print(f"{bcolors.FAIL}  CMID {cmid} → error: {e}{bcolors.ENDC}")
+                return 0, 0
+
+        forum_results = {}
+
+        def run_forum(cmid):
+            forum_results[cmid] = mark_forum(cmid)
+
+        forum_threads = [threading.Thread(target=run_forum, args=(cmid,)) for cmid in forum_data]
+        for t in forum_threads:
+            t.start()
+        for t in forum_threads:
+            t.join()
+
+        marked = sum(r[0] for r in forum_results.values())
+        total = sum(r[1] for r in forum_results.values())
+
+        print(f"{bcolors.OKGREEN}Curs {course_id}: {marked}/{total} discussions marcades com llegides.{bcolors.ENDC}")
+
+        if total == 0:
+            return jsonify({"error": "No s'han trobat discussions de fòrum en la pàgina del curs."}), 400
+
+        return jsonify({"success": marked > 0, "forums_marked": marked, "total_forums": total})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/get-moodle-data')
 def get_moodle_data():
     start_time_str = datetime.now().strftime('%H:%M:%S')
