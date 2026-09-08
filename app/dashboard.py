@@ -8,6 +8,7 @@ from flask import Flask, render_template, jsonify
 import time
 import base64
 from datetime import datetime
+from urllib.parse import parse_qs, urlparse
 
 # Clase para colores de la consola
 class bcolors:
@@ -369,6 +370,10 @@ def moodle_ws(function, **params):
     data = r.json()
     if isinstance(data, dict) and data.get('exception'):
         raise Exception(data.get('message', 'WS error'))
+    if isinstance(data, dict) and data.get('status') is False:
+        warnings = data.get('warnings') or []
+        warning_messages = [w.get('message') for w in warnings if isinstance(w, dict) and w.get('message')]
+        raise Exception('; '.join(warning_messages) or 'WS returned status=false')
     return data
 
 # --- VERSIÓ ANTERIOR DE LA GESTIÓ DE SESSIÓ (PROACTIVA) ---
@@ -429,6 +434,10 @@ def dashboard_page():
 
 MOODLE_BASE_URL = 'https://ioc.xtec.cat/campus'
 
+def url_param(url, param_name):
+    values = parse_qs(urlparse(url).query).get(param_name)
+    return values[0] if values else None
+
 @app.route('/mark-course-read/<int:course_id>', methods=['POST'])
 def mark_course_read(course_id):
     global moodle_session, moodle_token
@@ -450,9 +459,9 @@ def mark_course_read(course_id):
         for li in soup.find_all('li'):
             a = li.find('a', href=True)
             if a:
-                m = re.search(r'mod/forum/view\.php[^"\']*[?&]id=(\d+)', a['href'])
-                if m:
-                    forum_cmids.add(int(m.group(1)))
+                cmid = url_param(a['href'], 'id')
+                if cmid and 'mod/forum/view.php' in a['href']:
+                    forum_cmids.add(int(cmid))
 
         if not forum_cmids:
             return jsonify({"error": "No s'han trobat fòrums en l'HTML del plugin."}), 400
@@ -473,9 +482,9 @@ def mark_course_read(course_id):
                     disc_ids = set()
                     for a in fsoup.find_all('a', href=True):
                         if '#unread' in a['href']:
-                            dm = re.search(r'discuss\.php\?d=(\d+)', a['href'])
-                            if dm:
-                                disc_ids.add(int(dm.group(1)))
+                            did = url_param(a['href'], 'd')
+                            if did and 'discuss.php' in a['href']:
+                                disc_ids.add(int(did))
                     unread_by_cmid[cmid] = list(disc_ids)
                     print(f"{bcolors.OKCYAN}  CMID {cmid} → {len(disc_ids)} discussions no llegides{bcolors.ENDC}")
                 except Exception as e:
@@ -492,19 +501,55 @@ def mark_course_read(course_id):
         all_unread = [(cmid, did) for cmid, dids in unread_by_cmid.items() for did in dids]
         total = len(all_unread)
         marked = 0
+        fallback_marked = 0
+        mark_errors = []
+
+        def mark_discussion_via_web(did):
+            r = moodle_session.get(f"{MOODLE_BASE_URL}/mod/forum/discuss.php?d={did}#unread", timeout=20)
+            r.raise_for_status()
+            if "login/index.php" in r.text:
+                raise Exception("Sessió caducada visitant la discussió.")
+
+        def mark_discussion(did):
+            global moodle_token
+            ws_errors = []
+            for attempt in range(2):
+                try:
+                    moodle_ws('mod_forum_view_forum_discussion', discussionid=did)
+                    return 'ws', None
+                except Exception as e:
+                    ws_errors.append(str(e))
+                    if attempt == 0:
+                        moodle_token = None
+                        get_moodle_ws_token()
+
+            try:
+                mark_discussion_via_web(did)
+                return 'web', None
+            except Exception as e:
+                return None, f"WS: {' | '.join(ws_errors)}; web: {e}"
 
         for cmid, did in all_unread:
-            try:
-                moodle_ws('mod_forum_view_forum_discussion', discussionid=did)
+            method, error = mark_discussion(did)
+            if method:
                 marked += 1
-                print(f"{bcolors.OKGREEN}    CMID {cmid} d={did} → llegit{bcolors.ENDC}")
-            except Exception as e:
-                print(f"{bcolors.FAIL}    CMID {cmid} d={did} → error: {e}{bcolors.ENDC}")
+                if method == 'web':
+                    fallback_marked += 1
+                print(f"{bcolors.OKGREEN}    CMID {cmid} d={did} → llegit via {method}{bcolors.ENDC}")
+            else:
+                mark_errors.append(f"d={did}: {error}")
+                print(f"{bcolors.FAIL}    CMID {cmid} d={did} → error: {error}{bcolors.ENDC}")
 
-        print(f"{bcolors.OKGREEN}Curs {course_id}: {marked}/{total} discussions marcades.{bcolors.ENDC}")
+        print(f"{bcolors.OKGREEN}Curs {course_id}: {marked}/{total} discussions marcades ({fallback_marked} via web).{bcolors.ENDC}")
         if total == 0:
             return jsonify({"error": "No s'han trobat discussions no llegides."}), 400
-        return jsonify({"success": marked > 0, "forums_marked": marked, "total_forums": total})
+        return jsonify({
+            "success": marked == total,
+            "forums_marked": marked,
+            "total_forums": total,
+            "fallback_marked": fallback_marked,
+            "errors": mark_errors[:5],
+        })
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500

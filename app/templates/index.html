@@ -285,16 +285,22 @@
                         e.preventDefault();
                         e.stopPropagation();
                         markBtn.disabled = true;
+                        markBtn.classList.remove('success', 'error');
                         markBtn.textContent = '…';
+                        markBtn.title = 'Marcant com llegit...';
                         try {
                             const res = await fetch(`/mark-course-read/${courseId}`, { method: 'POST' });
-                            const result = await res.json();
+                            const result = await res.json().catch(() => ({}));
+                            if (!res.ok) {
+                                throw new Error(result.error || `Error del servidor: ${res.status}`);
+                            }
                             if (result.success && result.forums_marked > 0) {
                                 markBtn.textContent = '✓';
+                                markBtn.title = `${result.forums_marked}/${result.total_forums} marcats`;
                                 markBtn.classList.add('success');
                                 setTimeout(() => wrapper.remove(), 1500);
                             } else {
-                                const msg = result.error || `0/${result.total_forums} marcats`;
+                                const msg = result.error || result.errors?.join('; ') || `0/${result.total_forums || 0} marcats`;
                                 markBtn.title = msg;
                                 console.warn(`mark-course-read [${courseId}]:`, msg);
                                 markBtn.textContent = '✗';
@@ -302,7 +308,7 @@
                                 markBtn.disabled = false;
                             }
                         } catch (err) {
-                            markBtn.title = 'Error de connexió';
+                            markBtn.title = err.message || 'Error de connexió';
                             markBtn.textContent = '✗';
                             markBtn.classList.add('error');
                             markBtn.disabled = false;
