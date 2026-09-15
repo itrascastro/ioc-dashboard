@@ -35,58 +35,121 @@ install_apt_packages() {
     "${apt_cmd[@]}" -o DPkg::Lock::Timeout=300 install -y "$@"
 }
 
-ensure_python3() {
-    if command -v python3 &> /dev/null; then
+validate_python() {
+    local python_bin="$1"
+
+    "$python_bin" - <<'PY' &> /dev/null
+import sys
+if sys.version_info < (3, 9):
+    raise SystemExit(1)
+import ensurepip
+import ssl
+import venv
+import xml.parsers.expat
+PY
+}
+
+python_version() {
+    "$1" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")' 2> /dev/null
+}
+
+find_working_python() {
+    local candidate candidate_path seen_candidates
+
+    if [ -n "${DASHBOARD_PYTHON:-}" ]; then
+        if validate_python "$DASHBOARD_PYTHON"; then
+            PYTHON_BIN="$DASHBOARD_PYTHON"
+            return 0
+        fi
+
+        echo "ERROR: DASHBOARD_PYTHON no apunta a un Python compatible: $DASHBOARD_PYTHON"
+        echo "Cal Python >= 3.9 amb venv, ensurepip, ssl i xml.parsers.expat funcionals."
+        return 1
+    fi
+
+    # Preferim versions estables i explícites abans que el python3 per defecte del sistema.
+    for candidate in python3.12 python3.11 python3.13 python3.10 python3.9 python3.14 python3; do
+        candidate_path="$(command -v "$candidate" 2> /dev/null)"
+        if [ -z "$candidate_path" ]; then
+            continue
+        fi
+
+        case " $seen_candidates " in
+            *" $candidate_path "*) continue ;;
+        esac
+        seen_candidates="$seen_candidates $candidate_path"
+
+        if validate_python "$candidate_path"; then
+            PYTHON_BIN="$candidate_path"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+ensure_python_runtime() {
+    if find_working_python; then
+        echo "Python seleccionat: $PYTHON_BIN ($(python_version "$PYTHON_BIN"))"
         return
     fi
 
-    echo "Python 3 no està instal·lat. Intentant instal·lar-lo..."
-    install_apt_packages python3 python3-pip python3-venv
+    if command -v apt-get &> /dev/null; then
+        echo "Python compatible no disponible. Intentant instal·lar-lo..."
+        install_apt_packages python3 python3-pip python3-venv
 
-    if ! command -v python3 &> /dev/null; then
-        echo "ERROR: No s'ha pogut instal·lar Python 3."
-        exit 1
+        if find_working_python; then
+            echo "Python seleccionat: $PYTHON_BIN ($(python_version "$PYTHON_BIN"))"
+            return
+        fi
     fi
+
+    echo "ERROR: No s'ha trobat cap Python compatible per executar el dashboard."
+    echo "Cal Python >= 3.9 amb venv, ensurepip, ssl i xml.parsers.expat funcionals."
+    echo "macOS/Homebrew: prova amb 'brew install python@3.12' o executa amb DASHBOARD_PYTHON=/ruta/al/python."
+    exit 1
 }
 
-ensure_python_venv() {
-    if python3 -c "import venv, ensurepip" &> /dev/null; then
-        return
-    fi
-
-    local python_version
-    python_version="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
-
-    echo "El mòdul venv/ensurepip de Python no està disponible. Intentant instal·lar-lo..."
-    if ! install_apt_packages "python${python_version}-venv"; then
-        echo "ERROR: No s'ha pogut instal·lar python${python_version}-venv."
-        echo "Comprova si hi ha un altre apt en execució i torna-ho a provar."
-        exit 1
-    fi
-
-    if ! python3 -c "import venv, ensurepip" &> /dev/null; then
-        echo "ERROR: No s'ha pogut instal·lar el mòdul venv/ensurepip de Python."
-        echo "Prova manualment amb: sudo apt install python${python_version}-venv"
-        exit 1
-    fi
-}
-
-ensure_python3
-ensure_python_venv
+ensure_python_runtime
 
 # Canviar al directori de l'aplicació
 APP_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )/app"
 cd "$APP_DIR"
 
 # 1. Comprovar i crear l'entorn virtual si no existeix.
-if [ -d ".venv" ] && { [ ! -x ".venv/bin/python3" ] || [ ! -f ".venv/bin/activate" ] || [ ! -x ".venv/bin/pip" ]; }; then
-    echo "S'ha trobat un entorn virtual incomplet. Es recrearà..."
+venv_python_version() {
+    .venv/bin/python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2> /dev/null
+}
+
+selected_python_version() {
+    "$PYTHON_BIN" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2> /dev/null
+}
+
+venv_is_usable() {
+    [ -x ".venv/bin/python3" ] || return 1
+    [ -f ".venv/bin/activate" ] || return 1
+    .venv/bin/python3 - <<'PY' &> /dev/null || return 1
+import ensurepip
+import ssl
+import venv
+import xml.parsers.expat
+PY
+    .venv/bin/python3 -m pip --version &> /dev/null
+}
+
+if [ -d ".venv" ] && ! venv_is_usable; then
+    echo "S'ha trobat un entorn virtual incomplet o trencat. Es recrearà..."
+    rm -rf .venv
+fi
+
+if [ -d ".venv" ] && [ "$(venv_python_version)" != "$(selected_python_version)" ]; then
+    echo "L'entorn virtual existent fa servir Python $(venv_python_version), però s'ha seleccionat $(selected_python_version). Es recrearà..."
     rm -rf .venv
 fi
 
 if [ ! -d ".venv" ]; then
     echo "Creant entorn virtual a $(pwd)..."
-    python3 -m venv .venv
+    "$PYTHON_BIN" -m venv .venv
     if [ $? -ne 0 ]; then
         echo "ERROR: No s'ha pogut crear l'entorn virtual."
         echo "Revisa que el paquet venv de Python estigui instal·lat correctament."
@@ -96,7 +159,7 @@ fi
 
 # 2. Activar l'entorn virtual i instal·lar les dependències.
 echo "Instal·lant/actualitzant dependències..."
-source .venv/bin/activate && pip install -r requirements.txt
+.venv/bin/python3 -m pip install -r requirements.txt
 if [ $? -ne 0 ]; then
     echo "Error: No s'han pogut instal·lar les dependències des de requirements.txt."
     exit 1
@@ -115,4 +178,4 @@ DASHBOARD_PORT="${DASHBOARD_PORT:-5050}"
 echo "\n*** Iniciant el servidor del Dashboard ***"
 echo "Obre el teu navegador i ves a http://${DASHBOARD_HOST}:${DASHBOARD_PORT}"
 echo "Per aturar el servidor, prem CTRL+C en aquesta terminal."
-source .venv/bin/activate && DASHBOARD_HOST="$DASHBOARD_HOST" DASHBOARD_PORT="$DASHBOARD_PORT" python3 dashboard.py
+DASHBOARD_HOST="$DASHBOARD_HOST" DASHBOARD_PORT="$DASHBOARD_PORT" .venv/bin/python3 dashboard.py
