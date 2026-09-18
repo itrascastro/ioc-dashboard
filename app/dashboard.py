@@ -97,7 +97,7 @@ ENABLE_STATIC = bool(GITHUB_TOKEN.strip())
 CURSOS_A_MONITORIZAR = [
     {'id': '836'}, {'id': '5626'}, {'id': '841'}, {'id': '18432'},
     {'id': '18646'}, {'id': '18657'}, {'id': '18979'}, {'id': '18666'},
-    {'id': '1576'}, {'id': '17010'}, {'id': '17523'}, {'id': '3326'}
+    {'id': '1576'}, {'id': '17010'}, {'id': '3326'}
 ]
 
 # --- FUNCIONES DE OBTENCIÓN DE DATOS (RÁPIDAS) ---
